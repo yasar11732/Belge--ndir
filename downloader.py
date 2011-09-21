@@ -17,44 +17,64 @@ allowed_downloads = [
     "text/javascript",
 ]
 
+def getHeadResponse(url,response_cache = {}):
+    try:
+        return response_cache[url]
+    except KeyError:
+        url = urlparse.urlparse(url)
+        conn = httplib.HTTPConnection(url.netloc)
+        try:
+            conn.request("HEAD",url.path)
+        except:
+            # Anything can happen, this is SPARTA!
+            return None
+        response = conn.getresponse()
+        response_cache[url.geturl()] = response
+        return response
+
+def getHeader(url,header):
+    response = getHeadResponse(url)
+    if not response:
+        return None
+    else:
+        return response.getheader(header)
+
 def getContentType(url):
     "Returns content type of given url."
 
-    try:
-        return urllib2.urlopen(url).info()["Content-type"].split(";")[0]
-    except urllib2.HTTPError:
-        return None
+    contentType = getHeader(url,"Content-type")
+    if contentType:
+        return contentType.split(";")[0]
 
 def getFinalUrl(url):
     "Navigates through redirections to get final url."
 
-    url = urlparse.urlparse(url)
-    conn = httplib.HTTPConnection(url.netloc)
+    response = getHeadResponse(url)
     try:
-        conn.request("HEAD",url.path)
-    except gaierror:
-        sys.stderr.write("Couldn't get final url for %s" % url.geturl())
-        return ""
-    response = conn.getresponse()
-    if str(response.status).startswith("3"):
-        new_location = [v for k,v in response.getheaders() if k == "location"][0]
-        return getFinalUrl(new_location)
-    return url.geturl()
+        if str(response.status).startswith("3"):
+            return getFinalUrl(response.getheader("location"))
+    except AttributeError:
+        pass
+    return url
 
 def getEncoding(url):
 
+    response = getHeadResponse(url)
+    content = response.getheader("Content-type")
     try:
-        content_type = urllib2.urlopen(url).info()["Content-type"].split(";")
-        try:
-            charset = content_type[1]
-            key, equals, value = charset.partition("=")
-            return value
-        except IndexError:
-            return ""
-    except urllib2.HTTPError:
-        sys.stderr.write("Failed getting encoding for %s" % url)
-        return ""
+        key, equals, value = content.split(";")[1].partition("=")
+        return value
+    except IndexError, AttributeError:
+        return None
 
+def urlok(url):
+
+    response = getHeadResponse(url)
+    if str(response.status).startswith("2"):
+        return True
+    else:
+        return False
+    
 class LinkCollector(HTMLParser):
     """
     Parses a html and gets urls.
@@ -92,26 +112,10 @@ class HTMLReferenceFixer(HTMLParser):
 
     Get output from output property after feeding.
     """
-
-    def __getattribute__(self,attr):
-
-        if attr in (
-                "handle_charref",
-                "handle_entityref",
-                "handle_data",
-                "handle_comment",
-                "handle_decl",
-                "handle_pi",
-            ):
-
-            return self.handle_others
-
-        else:
-            return super(HTMLReferenceFixer,self).__getattribute__(attr)
-
+    
     def feed(self,data):
         if hasattr(self,"baseurl") and hasattr(self,"filepath"):
-            super(HTMLReferenceFixer,self).feed(data)
+            return HTMLParser.feed(self,data)
         else:
             raise AcayipError("You have to fill in baseurl and filepath attrs first.")
 
@@ -120,10 +124,11 @@ class HTMLReferenceFixer(HTMLParser):
         HTMLParser.reset(self)
 
 
-    def fixlink(link):
-
+    def fixlink(self,link):
+        # @TODO: fix links!
+        return "link was here!"
         
-    def fixsrc(attrs):
+    def fixsrc(self,attrs):
         new_attrs = []
 
         for k,v in attrs:
@@ -133,7 +138,7 @@ class HTMLReferenceFixer(HTMLParser):
 
         return new_attrs
 
-    def fixhref(attrs):
+    def fixhref(self,attrs):
         new_attrs = []
 
         for k,v in attrs:
@@ -162,7 +167,7 @@ class HTMLReferenceFixer(HTMLParser):
             self.output += " %s=\"%s\"" % (k,v)
         self.output += ">"
 
-    def handle_startendtag(self,tag,attrs)
+    def handle_startendtag(self,tag,attrs):
         if tag in ("a","script","link","img"):
             attrs = self.fixattrs(tag,attrs)
 
@@ -174,11 +179,35 @@ class HTMLReferenceFixer(HTMLParser):
     def handle_endtag(self,tag):
         self.output += "</%s>" % tag
 
-    def handle_others(self,data):
+    def handle_data(self,data):
+        self.output += data
+
+    def handle_decl(self,data):
+        self.output += data
+
+    def handle_charref(self,data):
+        self.output += "&#" + data + ";"
+        
+
+    def handle_entityref(self,data):
+        self.output += "&" + data + ";"
+
+    def handle_comment(self,data):
+        self.output += "<!--" + data + "-->"
+
+    def handle_pi(self,data):
         self.output += data
 
     
-                
+def dene():
+    a = HTMLReferenceFixer()
+    a.baseurl = ""
+    a.filepath = ""
+    a.feed("<a href=\"hebele\">hubele</a>")
+
+
+    a.feed("<p>&lt;</p>")
+    return a
 class DownloadQueue(object):
     """
     A loop safe and unique queue iterator. Allows item addition inside for loops.
@@ -240,20 +269,33 @@ def main(initial_url):
         link = urlparse.urlparse(link)
         
         if final_link.netloc != init_url.netloc:
+            sys.stderr.write("Skipping %s\n" % link.geturl())
+            sys.stderr.write("Reason: Link from different location\n")
             continue
         
         content = getContentType(final_link.geturl())
 
         if content == "text/html" and not final_link.geturl().startswith(initial_url):
-            continue
-        if content not in allowed_downloads:
+            sys.stderr.write("Skipping %s\n" % link.geturl())
+            sys.stderr.write("Reason: Not inside range.\n")
             continue
 
+        if content not in allowed_downloads:
+            sys.stderr.write("Skipping %s\n" % link.geturl())
+            sys.stderr.write("Reason: Not allowed download.\n")
+            continue
+
+        if not urlok(final_link.geturl()):
+            sys.stderr.write("Skipping %s\n" % link.geturl())
+            sys.stderr.write("Reason: Broken link\n")
+            continue
+        
         try:
             url = urllib2.urlopen(final_link.geturl())
         except urllib2.HTTPError:
-            sys.stderr.write("An error occured: skipping %s" % link.geturl())
+            sys.stderr.write("An error occured: skipping %s\n" % link.geturl())
             continue
+        
         
         print "Downloading %s" % link.geturl()
         response = url.read()
@@ -286,7 +328,20 @@ def main(initial_url):
         output_file = open(file_path,"wb")
         output_file.write(response)
         output_file.close()
-    print(to_be_processed)
+    print("Beginning fixing url references...")
+
+    for file_path, encoding, url in to_be_processed:
+        print("Processing %s" % file_path)
+        html_file = open(file_path,"rb")
+        html_contents = html_file.read().decode(encoding)
+        html_file.close()
+        a = HTMLReferenceFixer()
+        a.baseurl = url
+        a.filepath = file_path
+        a.feed(html_contents)
+        processed_file = open(file_path,"wb")
+        processed_file.write(a.output.encode(encoding))
+        processed_file.close()
 if __name__ == "__main__":
 
     try:
