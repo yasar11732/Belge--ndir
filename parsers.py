@@ -1,6 +1,10 @@
+# -*- coding: utf-8 -*-
 """
-This file holds various parsers to be used by downloader.py
+Bu dosyada, indirici tarafından kullanılacak ayrıştırıcılar bulunur.
+----------------------------------------------------------------------
+This file holds various parsers to be used by downloader.
 """
+
 import os
 import posixpath
 
@@ -11,15 +15,30 @@ from HTTPutils import getFinalUrl
 from sys import stderr
 
 class AdvancedParseResult(ParseResult):
-    "Adds getUrlWithoutFragments method to urlparse.ParseResult"
+    """
+    urlparse.ParseResult gibidir, ancak fazladan bir metot tanımlar.
+    ------------------------------------------------------------
+    Adds getUrlWithoutFragments method to urlparse.ParseResult
+    """
+
     def getUrlWithoutFragments(self):
+        """
+        urllerdeki # işaretinden sonra gelen kısımları atarak döndürür.
+        -------------------------------------------------------------
+        Removes fragments from url, and returns full url
+        """
         scheme, netloc, url, params, query, fragment = self
         if params:
             url = "%s;%s" % (url, params)
         return urlunsplit((scheme, netloc, url, query, ""))
 
 def myurlparse(url, scheme="", allow_fragments=True):
-    "Almost same as urlparse.urlparse. It returns AdvancedParseResult instead"
+    """
+    urlparse.urlparse gibidir, tek farkı, yukarıdaki AdvancedParseResult
+    sınıfının bir objesini döndürmesi.
+    -------------------------------------------------------------------------
+    Almost same as urlparse.urlparse. It returns AdvancedParseResult instead
+    """
     tuple = urlsplit(url, scheme, allow_fragments)
     scheme, netloc, url, query, fragment = tuple
     if scheme in uses_params and ';' in url:
@@ -30,6 +49,18 @@ def myurlparse(url, scheme="", allow_fragments=True):
 
 class LinkCollector(HTMLParser):
     """
+    Bir HTML sayfasını ayrıştırır, ve referansları toplar. Şunları içerir:
+    <a href="referans"> ...
+    <link href="referans"> ...
+    <script src="referans"> ...
+    <img src="referans"> ...
+
+    Kullanımı:
+    >>> a = LinkCollector()
+    >>> a.feed("<a href='http://www.google.com/'>asdf</a>")
+    >>> a.links
+    ['http://www.google.com/']
+    ----------------------------------------------------------
     Parses a html and gets references. This includes anchors, stylesheets,
     external scripts and images.
     >>> a = LinkCollector()
@@ -47,13 +78,46 @@ class LinkCollector(HTMLParser):
             key = "src"
         else:
             return
-        self.links.extend([v for k,v in attr if k == key])
+        try:
+            new_link = [v for k,v in attr if k == key][0]
+        except IndexError:
+            # No referance given ...
+            return
+        new_link = new_link.split("#")[0]
+        if new_link not in self.links:
+            self.links.append(new_link)
+        
         
 class AcayipError(Exception):
-    "Raised if HTMLReference Fixer called without proper attributes."
+    """
+    Bildiğin hata...
+    -----------------------------------------------------------------
+    Raised if HTMLReference Fixer called without proper attributes.
+    """
     
 class HTMLReferenceFixer(HTMLParser):
     """
+    Bir html belgesinideki referansları, gösterilen dosyanın yerel sürücüde
+    var olup olmadığını kontrol ederek düzeltir. Bir objesi oluşturulup,
+    bir değişkene atandıktan sonra, şu şekilde ayarlanmalıdır:
+
+    >>> a = HTMLReferenceFixer()
+    >>> a.setbaseurl("http://birurladresi.com")
+    >>> a.filepath = "dosya_yolu"
+
+    Burada, http://birurladresi.com, urlleri çevirirken, bu dosyanın url
+    adresi olarak sayacağımız adres. dosya_yolu ise, işlenecek dosyanın
+    yerel sürücüde olduğunu varsayacağımız yer. Daha sonra gerekli dosyayı
+    açıp, feed metoduyla işleme sokmanız gerekiyor. İşlenmiş halini de "output"
+    özelliğinden alabilirsiniz.
+
+    >>> dosya = open(bir_dosya,"r")
+    >>> a.feed(dosya.read())
+    >>> dosya.close
+    >>> dosya = open(bir_dosya,"w")
+    >>> dosya.write(a.output)
+    >>> dosya.close()
+    ---------------------------------------------------------------------------
     After instantiating, set base url and file path like this:
     a = HTMLReferenceFixer()
     a.setbaseurl("someurl") # use this method! don't directly set it.
@@ -83,7 +147,16 @@ class HTMLReferenceFixer(HTMLParser):
         HTMLParser.reset(self)
 
     def relurl(self,url):
-        """Calculates relative url from self.baseurl to url argument.
+        """
+        Argüman olarak verilen url, tam teşekküllü bir url olmalıdır. Bu metot
+        objenin temel aldığı adresden, verilen url'e giden, dolaylı yolu bulur.
+        Örneğin;
+        >>> self.setbaseurl("http://www.google.com/hebel/hubel.mp3")
+        >>> self.filepath = "/home/yasar/www.google.com/hebel/hubel.mp3"
+        >>> self.relurl("http://www.google.com/")
+        ../
+        ------------------------------------------------------------------
+        Calculates relative url from self.baseurl to url argument.
         >>> self.setbaseurl("http://www.google.com/hebel/hubel.mp3")
         >>> self.filepath = "/home/yasar/www.google.com/hebel/hubel.mp3"
         >>> self.relurl("http://www.google.com/")
@@ -98,9 +171,18 @@ class HTMLReferenceFixer(HTMLParser):
 
     def fixlink(self,link):
         """
+        Bu sınıfın asıl işi yapan metodu. İşlenecek bütün referanslar, bu metoda
+        gönderilir. link argümanıyla gösterilen dosyanın, dosya sisteminde
+        nerede bulunması gerektiğini hesaplar, eğer gerçekten orada o dosya
+        varsa, objenin baseurl'inden, o dosyaya giden, dolaylı referansı
+        döndürür. Eğer bu dosya yerel sürücüde bulunamıyorsa, bahsedilen
+        dosyanın internet üzerinde bulunduğu adresi döndürür. Böylece bozuk
+        linkler ortadan kaldırılmış olur. Ayrıca, HTTP yönlendirmelerini de
+        göz önünde bulundurur.
+        ------------------------------------------------------------------------
         This method is used for correcting references in anchors, scripts,
         styles and images. If referenced file exists locally, a relative link
-        returned. Otherwise, a full url returned. HTML redirections cannot fool
+        returned. Otherwise, a full url returned. HTTP redirections cannot fool
         us, since we are checking them! :)
         """
         linked_target = urljoin(self.baseurl.geturl(),link)
@@ -116,7 +198,7 @@ class HTMLReferenceFixer(HTMLParser):
                 urljoin(
                     real_target.geturl(),"./index.html"))
         
-        if real_target.netloc != self.baseurl.netloc:  
+        if real_target.netloc != self.baseurl.netloc:
             return real_target.geturl()
 
         target_file = os.path.join(self.downloaddir,
@@ -198,6 +280,3 @@ class HTMLReferenceFixer(HTMLParser):
 
     def handle_pi(self,data):
         self.output += "<?" + data + ">"
-
-
-

@@ -1,15 +1,22 @@
 # -*- coding: utf-8 -*-
-
+# -*- coding: utf-8 -*-
+"""
+İndirme işleminin gerçekleştiği yer.
+-----------------------------------------------------------------------------
+Main module.
+"""
 import os
 import sys
 
 from urllib2 import urlopen, HTTPError, URLError
 from urlparse import urljoin
 from os import makedirs
+from HTMLParser import HTMLParseError
 from HTTPutils import getEncoding, getFinalUrl, getContentType
 from parsers import myurlparse, LinkCollector, HTMLReferenceFixer
 
-# Contents types to be donwloaded
+# İndirilecek belge türleri
+# Contents types to be downloaded
 allowed_downloads = [
     "text/plain",
     "text/html",
@@ -19,6 +26,10 @@ allowed_downloads = [
 
 class DownloadQueue(object):
     """
+    Döngü içerisinde listeye ekleme yapıldığında sıkıntı çıkarmayacak bir
+    sıralayıcı. Bir kere sunduğu bir objeyi, bir daha sunmaz, böylece, sıraya
+    eklerken, daha önce eklenmiş mi diye kontrol etmeye gerek duyulmaz.
+    --------------------------------------------------------------------------
     A loop safe and unique queue iterator. Allows item addition inside for loops.
     Gives only unique items so you don't need to check item when adding it to the queue.
     Half-optimized for potentially big queues.
@@ -51,10 +62,12 @@ class DownloadQueue(object):
         
 
 
+    
 def main(initial_url):
 
     # List of 3-item tuples.
     # (file_path, encoding, base_url)
+    # (dosya_yolu, kodlama, temel_url)
     to_be_processed = []
         
     queue = DownloadQueue()
@@ -80,6 +93,28 @@ def main(initial_url):
     if not os.path.isdir(download_dir):
         os.mkdir(download_dir)
 
+    def check_url(url,check_cache = {}):
+        """
+        Verilen url indirelecek mi diye bakar. Eğer, indirelecekse,
+        gereken düzenlemeler de yapılmış olarak url döndürür, eğer
+        indirilmeyecekse, None döndürür.
+        ------------------------------------------------------------------
+        Checks to see if url is ok for download
+        """
+        try:
+            return check_cache[url]
+        except KeyError:
+            if not url.startswith(initial_url):
+                check_cache[url] = None
+                return None
+            final_location = getFinalUrl(url)
+
+            if not final_location.startswith(initial_url):
+                check_cache[url] = None
+                return None
+            new_link = myurlparse(final_location).getUrlWithoutFragments()
+            check_cache[url] = new_link
+            return new_link
 
     for link in queue:
         
@@ -109,7 +144,7 @@ def main(initial_url):
             continue
         
         
-        print "Downloading %s" % link.geturl()
+        print "Downloading -- İndiriliyor: %s\n" % link.geturl(),
         response = url.read()
         url.close()
         file_path = os.path.join(download_dir,*link.path.split("/"))
@@ -123,39 +158,46 @@ def main(initial_url):
 
         
         if content == "text/html":
+            print "Searching and checking links, could take a while."
+            print "-------------------------------------------------"
+            print "Linkler bulunup kontrol ediliyor, uzun sürebilir."
             link_collect = LinkCollector()
-            encoding = getEncoding(link.geturl())
+            encoding = getEncoding(link.geturl()) or "utf-8"
 
             try:
-                link_collect.feed(response.decode(encoding))
+                response_to_be_parsed = response.decode(encoding)
+            except (LookupError, UnicodeDecodeError):
+                response_to_be_parsed = response
 
-            except:
-                sys.stderr.write("Malformed page, skipping %s" % link.geturl())
+            try:
+                link_collect.feed(response_to_be_parsed)
+            except HTMLParseError:
+                sys.stderr.write("Malformed page, skipping %s\n" % link.geturl())
                 continue
-
             for new_link in link_collect.links:
-                new_link = urljoin(link.geturl(),new_link)
-                if not new_link.startswith(initial_url):
-                    continue
-                final_location = getFinalUrl(new_link)
-
-                if not final_location.startswith(initial_url):
-                    continue
-                new_link = myurlparse(final_location)
-                queue.append(new_link.getUrlWithoutFragments())
+                new_link = check_url(urljoin(link.geturl(),new_link))
+                if new_link:
+                    queue.append(new_link)
 
             base_url = link.geturl()
             if base_url.endswith("/"):
                 base_url += "index.html"
             to_be_processed.append((file_path,encoding,base_url))
+            print "Done! -- Tamam!"
 
         output_file = open(file_path,"wb")
         output_file.write(response)
         output_file.close()
-    print("Beginning fixing url references...")
+
+    print "Beginning to try to fix references, in some cases,"
+    print "this could a really long time."
+    print "--------------------------------------------------"
+    print "Referansları düzeltme işlemi başlıyor, bu bazen"
+    print "bayağı fazla zaman alabilir."
+    print "--------------------------------------------------"
 
     for file_path, encoding, url in to_be_processed:
-        print("Processing %s" % file_path)
+        print("Processing - İşleniyor: %s" % file_path)
         html_file = open(file_path,"rb")
         html_contents = html_file.read().decode(encoding)
         html_file.close()
