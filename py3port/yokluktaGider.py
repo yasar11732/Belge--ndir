@@ -8,12 +8,12 @@ Main module.
 """
 import os
 import sys
-from urllib2 import urlopen
-from urllib2 import HTTPError, URLError
-from urlparse import urljoin
-from HTMLParser import HTMLParseError
-from HTTPutils import getEncoding, getFinalUrl, getContentType
-from parsers import myurlparse, LinkCollector, HTMLReferenceFixer, encodingFinder
+from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin
+from html.parser import HTMLParseError
+from .HTTPutils import getEncoding, getFinalUrl, getContentType
+from .parsers import myurlparse, LinkCollector, HTMLReferenceFixer, encodingFinder
 
 # İndirilecek belge türleri
 # Contents types to be downloaded
@@ -43,9 +43,6 @@ class DownloadQueue(object):
 
     def __iter__(self):
         return self
-
-    def next(self):
-        return self.__next__()
         
     def __next__(self):
         try:
@@ -193,7 +190,7 @@ def main(initial_url):
                 response_to_be_parsed = response
 
             try:
-                link_collect.feed(unicode(response, encoding))
+                link_collect.feed(str(response, encoding))
             except HTMLParseError:
                 sys.stderr.write("HTML Parse error, could't get all the links.")
 
@@ -226,7 +223,7 @@ def main(initial_url):
         a.filepath = file_path
 
         try:
-            a.feed(unicode(html_contents, encoding))
+            a.feed(str(html_contents, encoding))
         except HTMLParseError:
             sys.stderr.write("Couldn\'t parse html file, skipping...")
             continue
@@ -239,5 +236,5 @@ if __name__ == "__main__":
     try:
         initial_url = sys.argv[1]
     except IndexError:
-        initial_url = raw_input("Lütfen giriş url\'ini giriniz: ")
+        initial_url = input("Lütfen giriş url\'ini giriniz: ")
     main(initial_url)

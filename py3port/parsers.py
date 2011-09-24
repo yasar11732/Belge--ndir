@@ -9,10 +9,10 @@ import os
 import posixpath
 import logging
 
-from urlparse import ParseResult, urlsplit, urlunsplit, uses_params
-from urlparse import _splitparams, urljoin
-from HTMLParser import HTMLParser
-from HTTPutils import getFinalUrl
+from urllib.parse import ParseResult, urlsplit, urlunsplit, uses_params
+from urllib.parse import _splitparams, urljoin
+from html.parser import HTMLParser
+from .HTTPutils import getFinalUrl
 from sys import stderr
 
 class AdvancedParseResult(ParseResult):
@@ -161,7 +161,7 @@ class HTMLReferenceFixer(HTMLParser):
     """
 
     def __getattribute__(self, attr):
-        print "Getting attribute %s" % attr
+        print("Getting attribute %s" % attr)
         return HTMLParser.__getattribute(self, attr)
     
     def setbaseurl(self, url):

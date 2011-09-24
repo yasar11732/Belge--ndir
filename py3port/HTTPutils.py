@@ -6,14 +6,14 @@ bulunur.
 This file holds some HTTP utilies to be used by downloader.
 """
 
-from urlparse import urlparse
-from httplib import HTTPConnection, ResponseNotReady
+from urllib.parse import urlparse
+from http.client import HTTPConnection, ResponseNotReady
 from socket import setdefaulttimeout
 
 setdefaulttimeout(5)
 
 try:
-    from httplib import HTTPSConnection
+    from http.client import HTTPSConnection
     ssl = True
 except ImportError:
     ssl = False
