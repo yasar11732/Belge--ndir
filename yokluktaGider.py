@@ -8,22 +8,46 @@ Main module.
 """
 import os
 import sys
+import logging
+import HTTPutils
+import shutil
+
+from collections import deque
+from sets import ImmutableSet
 from urllib2 import urlopen
 from urllib2 import HTTPError, URLError
 from urlparse import urljoin
 from HTMLParser import HTMLParseError
-from HTTPutils import getEncoding, getFinalUrl, getContentType
+
 from parsers import myurlparse, LinkCollector, HTMLReferenceFixer, encodingFinder
 
 # İndirilecek belge türleri
 # Contents types to be downloaded
-allowed_downloads = [
+allowed_downloads = ImmutableSet([
     "text/plain",
     "text/html",
     "text/css",
     "text/javascript",
-]
+])
 
+
+main_logger = logging.getLogger("indirici")
+main_logger.setLevel(logging.DEBUG)
+
+fh = logging.FileHandler("indirici.log")
+fh.setLevel(logging.DEBUG)
+
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+fh.setFormatter(formatter)
+ch.setFormatter(formatter)
+
+main_logger.addHandler(fh)
+main_logger.addHandler(ch)
+    
 class DownloadQueue(object):
     """
     Döngü içerisinde listeye ekleme yapıldığında sıkıntı çıkarmayacak bir
@@ -38,8 +62,8 @@ class DownloadQueue(object):
     """
 
     def __init__(self):
-        self._queue = []
-        self._already_given = []
+        self._queue = deque()
+        self._already_given = set()
 
     def __iter__(self):
         return self
@@ -49,15 +73,17 @@ class DownloadQueue(object):
         
     def __next__(self):
         try:
-            item = self._queue.pop(0)
-            self._already_given.append(item)
+            item = self._queue.popleft()
+            self._already_given.add(item)
+            main_logger.debug("Returning %s from url queue." % item)
             return item
         except IndexError:
-            self._already_given = []
+            self._already_given = set()
             raise StopIteration
 
     def append(self, item):
         if item not in self._queue and item not in self._already_given:
+            main_logger.debug("Appending %s to download queue." % item)
             self._queue.append(item)
         
 
@@ -78,11 +104,11 @@ def main(initial_url):
         initial_url += "/"
         init_url = myurlparse(initial_url)
 
-    final_location = getFinalUrl(init_url.geturl())
+    final_location = HTTPutils.getFinalUrl(init_url.geturl())
 
     if not final_location.startswith(initial_url):
-        sys.stderr.write("Your page redirects to unwanted url.")
-        sys.stderr.write("I refuse to donwload!")
+        main_logger.critical("The page you have given redirects to %s")
+        main_logger.critical("Aborting...")
     final_location = myurlparse(final_location)
     
     queue.append(final_location.getUrlWithoutFragments())
@@ -107,7 +133,7 @@ def main(initial_url):
             if not url.startswith(initial_url):
                 check_cache[url] = None
                 return None
-            final_location = getFinalUrl(url)
+            final_location = HTTPutils.getFinalUrl(url)
 
             if not final_location.startswith(initial_url):
                 check_cache[url] = None
@@ -121,41 +147,35 @@ def main(initial_url):
         link = myurlparse(link)
         
         if link.netloc != init_url.netloc:
-            sys.stderr.write("Skipping %s\n" % link.geturl())
-            sys.stderr.write("Reason: Link from different location\n")
+            main_logger.info("Skipping link from other internet location: %s" % link.geturl())
             continue
         
-        content = getContentType(link.geturl())
+        content = HTTPutils.getContentType(link.geturl())
         if not content:
-            print("Failed to get content type from the server.")
-            print("Skipping...")
+            main_logger.warning("Couldn\'t get content type for %s, skipping" % link.geturl())
             continue
         
         if content == "text/html" and not link.geturl().startswith(initial_url):
-            sys.stderr.write("Skipping %s\n" % link.geturl())
-            sys.stderr.write("Reason: Not inside range.\n")
+            main_logger.info("Skipping %s, because not in download subdirectory." % link.geturl())
             continue
 
         if content not in allowed_downloads:
-            sys.stderr.write("Skipping %s\n" % link.geturl())
-            sys.stderr.write("Reason: Not allowed download.\n")
+            main_logger.info("Skipping %s because it is not in allowed downloads." % link.geturl())
             continue
         
         try:
             url = urlopen(link.geturl(), timeout=5)
 
         except HTTPError as e:
-            print("The server couldn\'t fullfill the request.")
-            print("Error Code: ", e.code)
-            print("Skipping...")
+            main_logger.warning("Server couldn\'t fullfill the request. [%s], Skipping" % e.code)
             continue
 
         except URLError as e:
-            print("We failed to reach the server.")
-            print("Reason: ", e.reason)
+            main_logger.warning("We failed to reach %s because %s" % (link.geturl(), e.reason))
+            main_logger.warning("Skipping %s" % link.geturl())
             continue
         
-        print("Downloading -- İndiriliyor: %s\n" % link.geturl())
+        main_logger.info("Downloading %s" % link.geturl())
         response = url.read()
         url.close()
         file_path = os.path.join(download_dir,*link.path.split("/"))
@@ -171,31 +191,31 @@ def main(initial_url):
             output_file.write(response)
             
         if content == "text/html":
-            print("Searching and checking links, could take a while.")
-            print("-------------------------------------------------")
-            print("Linkler bulunup kontrol ediliyor, uzun sürebilir.")
+            main_logger.info("Parsing page for further links, could take a while.")
 
             link_collect = LinkCollector()
-            encoding = getEncoding(link.geturl())
+            encoding = HTTPutils.getEncoding(link.geturl())
             if not encoding:
+                main_logger.debug("Couldn\'t get encoding in http headers for %s" % link.geturl())
                 # If http headers doesn't mention charset,
                 # we parse html file to see meta headers
                 a = encodingFinder()
                 a.feed(response)
                 encoding = a.encoding
-
-            # If we still don't have any charset, we go with default.
-            encoding = encoding or "iso-8859-1"
+            if not encoding:
+                main_logger.debug("Set default encoding for %s" % link.geturl())
+                encoding = "iso-8859-1"
 
             try:
                 response_to_be_parsed = response.decode(encoding)
             except (LookupError, UnicodeDecodeError):
+                main_logger.debug("Decoding failed for %s, feeding raw binary data" % link.geturl())
                 response_to_be_parsed = response
 
             try:
                 link_collect.feed(unicode(response, encoding))
             except HTMLParseError:
-                sys.stderr.write("HTML Parse error, could't get all the links.")
+                main_logger.warning("HTML Parse error, could't get all the links.")
 
             for new_link in link_collect.links:
                 new_link = check_url(urljoin(link.geturl(), new_link))
@@ -206,18 +226,12 @@ def main(initial_url):
             if base_url.endswith("/"):
                 base_url += "index.html"
             to_be_processed.append((file_path, encoding, base_url))
-            print("Done! -- Tamam!")
+            main_logger.info("Done parsing for links.")
 
-    print("Beginning to try to fix references, in some cases,")
-    print("this could a really long time.")
-    print("--------------------------------------------------")
-    print("Referansları düzeltme işlemi başlıyor, bu bazen")
-    print("bayağı fazla zaman alabilir.")
-    print("--------------------------------------------------")
+    main_logger.info("Starting to fix references, this could take a while...")
 
     for file_path, encoding, url in to_be_processed:
-        print(file_path, encoding, url)
-        print(("Processing - İşleniyor: %s" % file_path))
+        main_logger.info("processing %s" % file_path)
         with open(file_path, "r") as html_file:
             html_contents = html_file.read()
 
@@ -228,16 +242,19 @@ def main(initial_url):
         try:
             a.feed(unicode(html_contents, encoding))
         except HTMLParseError:
-            sys.stderr.write("Couldn\'t parse html file, skipping...")
+            main_logger.warning("Couldn\'t parse %s, skipping" % (file_path))
             continue
 
         with open(file_path, "w") as processed_file:
             processed_file.write(a.output.encode(encoding))
 
 if __name__ == "__main__":
-
+    
     try:
         initial_url = sys.argv[1]
     except IndexError:
         initial_url = raw_input("Lütfen giriş url\'ini giriniz: ")
+
+    if not initial_url.startswith("http"):
+        initial_url = "http://" + initial_url
     main(initial_url)

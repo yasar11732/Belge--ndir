@@ -12,8 +12,8 @@ from urllib.request import urlopen
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from html.parser import HTMLParseError
-from .HTTPutils import getEncoding, getFinalUrl, getContentType
-from .parsers import myurlparse, LinkCollector, HTMLReferenceFixer, encodingFinder
+from HTTPutils import getEncoding, getFinalUrl, getContentType
+from parsers import myurlparse, LinkCollector, HTMLReferenceFixer, encodingFinder
 
 # İndirilecek belge türleri
 # Contents types to be downloaded
@@ -164,7 +164,7 @@ def main(initial_url):
         if not os.path.isdir(os.path.dirname(file_path)):
             os.makedirs(os.path.dirname(file_path))
 
-        with open(file_path, "w") as output_file:
+        with open(file_path, "wb") as output_file:
             output_file.write(response)
             
         if content == "text/html":
@@ -178,7 +178,7 @@ def main(initial_url):
                 # If http headers doesn't mention charset,
                 # we parse html file to see meta headers
                 a = encodingFinder()
-                a.feed(response)
+                a.feed(response.decode("iso-8859-1"))
                 encoding = a.encoding
 
             # If we still don't have any charset, we go with default.
@@ -223,13 +223,13 @@ def main(initial_url):
         a.filepath = file_path
 
         try:
-            a.feed(str(html_contents, encoding))
+            a.feed(html_contents)
         except HTMLParseError:
             sys.stderr.write("Couldn\'t parse html file, skipping...")
             continue
 
         with open(file_path, "w") as processed_file:
-            processed_file.write(a.output.encode(encoding))
+            processed_file.write(a.output)
 
 if __name__ == "__main__":
 

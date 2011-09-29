@@ -5,12 +5,29 @@ bulunur.
 -----------------------------------------------------------------------
 This file holds some HTTP utilies to be used by downloader.
 """
+import logging
 
 from urlparse import urlparse
 from httplib import HTTPConnection, ResponseNotReady
 from socket import setdefaulttimeout
 
 setdefaulttimeout(5)
+
+
+httputillogger = logging.getLogger("http-utils")
+httputillogger.setLevel(logging.DEBUG)
+
+fh = logging.FileHandler("httputils.log")
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+fh.setFormatter(formatter)
+fh.setLevel(logging.DEBUG)
+
+httputillogger.addHandler(fh)
+
+
+
+
 
 try:
     from httplib import HTTPSConnection
@@ -33,7 +50,10 @@ def getHeadResponse(url,response_cache = {}):
     This function may return None if an error occurs.
     """
     try:
-        return response_cache[url]
+        a = response_cache[url]
+        httputillogger.debug("Returning headers for %s from cache" % url)
+        return a
+
     except KeyError:
 
         url = urlparse(url)
@@ -42,14 +62,17 @@ def getHeadResponse(url,response_cache = {}):
         elif url.scheme == "https" and ssl:
             conn = HTTPSConnection(url.netloc, timeout=2)
         else:
+            httputillogger.warning("No compatipable schema for head request, returning none: %s" % url.geturl())
             return None
         try:
             conn.request("HEAD", url.path)
             response = conn.getresponse()
         except:
+            httputillogger.warning("Unknown error occured while trying to make a HEAD request, return None: %s" % url.geturl())
             response = None
         
         if response:
+            httputillogger.info("Caching HEAD response for %s" % url.geturl())
             response_cache[url.geturl()] = response
         return response
     
@@ -117,16 +140,20 @@ def getEncoding(url):
     Gets character encoding for a given page. Probably only defined for
     text/html content-type. If no charset info found, returns None.    
     """
-    response = getHeadResponse(url)
-    if not response:
-        return
-
-    content = response.getheader("Content-type")
+    content = getHeader(url,"Content-type")
+    httputillogger.debug("content type for %s is %s" % (url,content))
     try:
         key, equals, value = content.split(";")[1].partition("=")
+
     except IndexError:
+        httputillogger.debug("There is no \";\" in content")
         return
-    return key == "charset" and value or None
+    
+    if key.strip() == "charset":
+        httputillogger.debug("Found charset returning %s" % value.strip())
+        return value.strip()
+    httputillogger.debug("Couldn\'t get encoding from http headers.")
+    return None
 
 def urlok(url):
     """

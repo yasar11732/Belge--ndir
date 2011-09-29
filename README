@@ -1,0 +1,25 @@
+Purpose of this project, is to provide a utility to download
+web documents for offline viewing. (something like wget --convert-links)
+
+** FEATURES **
+
+*)Only downloads pre-defined content types.
+*)Only downloads files and folders, below given url,
+for example, when initial url is http://www.example.com/something/
+program will download http://www.example.com/something/otherthing.html
+but not download http://www.example.com/somefile.txt
+*)Only downloads from given internet location, for example if initial url
+was www.example.com, program won't download docs.example.com.
+*)Fixes url's by checking if referenced file exists locally. If file exist,
+converst url to relative url, if it is not, it converts url to full url.
+*) url conversion is done for css and javascript documents too.
+
+** Known Issues **
+*) html parsers are slow and sometimes can't parse files correctly.
+*) Doesn't support command line arguments as of now.
+
+@ TODO:
+
+Re-write parsers from scratch.
+Implement multiprocessing
+Implement command line arguments 

@@ -65,7 +65,10 @@ class encodingFinder(HTMLParser):
                     our_meta = True
             for k, v in attrs:
                 if k == "content":
-                    c_type, charset = v.split(";")
+                    try:
+                        c_type, charset = v.split(";")
+                    except ValueError:
+                        return
                     key, equals, value = charset.partition("=")
 
                     if key.rstrip().lstrip() == "charset":

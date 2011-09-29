@@ -12,7 +12,7 @@ import logging
 from urllib.parse import ParseResult, urlsplit, urlunsplit, uses_params
 from urllib.parse import _splitparams, urljoin
 from html.parser import HTMLParser
-from .HTTPutils import getFinalUrl
+from HTTPutils import getFinalUrl
 from sys import stderr
 
 class AdvancedParseResult(ParseResult):
@@ -161,8 +161,7 @@ class HTMLReferenceFixer(HTMLParser):
     """
 
     def __getattribute__(self, attr):
-        print("Getting attribute %s" % attr)
-        return HTMLParser.__getattribute(self, attr)
+        return super(HTMLReferenceFixer,self).__getattribute__(attr)
     
     def setbaseurl(self, url):
         self.baseurl = myurlparse(url)
